@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pengimbas QR - Sistem MJII</title>
+
+  <link rel="icon" type="image/png" href="images/tvetmara.png?v=1.0">
+  <link rel="shortcut icon" type="image/x-icon" href="images/tvetmara.ico?v=1.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="images/tvetmara.png?v=1.0">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Sistem MJII">
+  <meta name="theme-color" content="#002B66">
+
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f6f9; margin: 0; padding: 0; }
+    .scanner-card { background: white; padding: 20px; border-radius: 12px; max-width: 400px; margin: auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; }
+    #reader { width: 100%; border-radius: 8px; overflow: hidden; border: 2px solid #002B66; margin-top: 10px; }
+    #statusMsg { font-weight: bold; margin-top: 15px; min-height: 40px; font-size: 0.95rem; white-space: pre-line; }
+    .success { color: #2e7d32; }
+    .error { color: #d32f2f; }
+    
+    /* Input tersembunyi untuk menangkap bacaan HENEX Scanner */
+    .hidden-input {
+      position: absolute;
+      opacity: 0;
+      top: -1000px;
+      left: -1000px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Input tersembunyi untuk memproses bacaan HENEX USB Scanner -->
+  <input type="text" id="barcodeInput" class="hidden-input" autofocus autocomplete="off">
+
+  <header class="main-header">
+    <div class="header-left">
+      <a href="home.html" class="logo-button">
+        <img src="images/tvetmara.jpg" alt="Logo TVET MARA">
+      </a>
+      <div class="brand-title">
+        <h1>Sistem Keluar Masuk Pelajar</h1>
+        <p>TVETMARA MARA-Japan Industrial Institute (MJII)</p>
+      </div>
+    </div>
+  </header>
+
+  <div class="main-container" style="padding: 20px; max-width: 500px; margin: auto; margin-bottom: 80px;">
+    <div class="scanner-card">
+      <h2 style="color: #002B66; margin-bottom: 5px;">Pengimbas QR Pintu Pagar</h2>
+      <p style="font-size: 0.85rem; color: #555;">Halakan QR Code ke pengimbas USB atau Kamera Web</p>
+      
+      <div id="reader"></div>
+      <div id="statusMsg">Sedia untuk mengimbas...</div>
+    </div>
+  </div>
+
+  <footer style="text-align: center; padding: 20px 0; font-size: 0.8rem; color: #666;">
+    <div class="footer-copy">© 2026 Sistem Keluar Masuk Pelajar TVETMARA MJII. Hak Cipta Terpelihara.</div>
+    <div class="footer-credit">Designed & Developed by @mhdzriyy</div>
+  </footer>
+
+  <script>
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw3x0HLZ3GDk9Difuz4gHaOkLEBSYH550jA0kQ1IZTsD6Ei6RNOkkGhQiIXKgG6bDNP/exec";
+    
+    let html5QrCode = null;
+    let selectedCameraId = null;
+    let isProcessing = false;
+
+    window.addEventListener('DOMContentLoaded', () => {
+      initCameraAndScanner();
+      setupUsbScanner();
+    });
+
+    // Kekalkan fokus pada input tersembunyi supaya bacaan pengimbas USB sentiasa ditangkap
+    function setupUsbScanner() {
+      const input = document.getElementById('barcodeInput');
+      
+      // Pastikan fokus kekal apabila pengguna menekan mana-mana kawasan pada skrin
+      document.addEventListener('click', () => {
+        input.focus();
+      });
+
+      // Dengar peristiwa 'Enter' daripada pengimbas HENEX USB
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const scannedText = input.value.trim();
+          input.value = '';
+          if (scannedText) {
+            processQrCodeData(scannedText);
+          }
+        }
+      });
+    }
+
+    function playBeepSound() {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.15);
+      } catch (e) {
+        console.warn("Gagal memainkan bunyi beep:", e);
+      }
+    }
+
+    function initCameraAndScanner() {
+      html5QrCode = new Html5Qrcode("reader");
+
+      Html5Qrcode.getCameras().then(devices => {
+        if (devices && devices.length) {
+          const backCamera = devices.find(device => device.label.toLowerCase().includes('back') || device.label.toLowerCase().includes('rear'));
+          selectedCameraId = backCamera ? backCamera.id : devices[0].id;
+          startScanning();
+        } else {
+          document.getElementById('statusMsg').className = "error";
+          document.getElementById('statusMsg').innerText = "Sedia untuk imbasan USB HENEX (Kamera Web tidak dikesan).";
+        }
+      }).catch(err => {
+        console.error("Gagal mendapatkan akses kamera:", err);
+        document.getElementById('statusMsg').className = "error";
+        document.getElementById('statusMsg').innerText = "Sedia untuk imbasan USB HENEX.";
+      });
+    }
+
+    function startScanning() {
+      if (!selectedCameraId || !html5QrCode) return;
+
+      html5QrCode.start(
+        selectedCameraId, 
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        onScanSuccess,
+        onScanFailure
+      ).catch(err => console.error("Gagal memulakan imbasan kamera:", err));
+    }
+
+    function onScanSuccess(decodedText, decodedResult) {
+      if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().then(() => {
+          processQrCodeData(decodedText);
+        }).catch(err => {
+          console.error("Ralat menghentikan imbasan kamera:", err);
+          processQrCodeData(decodedText);
+        });
+      } else {
+        processQrCodeData(decodedText);
+      }
+    }
+
+    function processQrCodeData(decodedText) {
+      if (isProcessing) return;
+      isProcessing = true;
+
+      playBeepSound();
+
+      const statusMsg = document.getElementById('statusMsg');
+      statusMsg.className = "";
+      statusMsg.innerText = "QR Dikesan! Menghantar data ke sistem...";
+
+      // Split data QR: NO_MATRIK|ACTION|NAMA|ALASAN|TIMESTAMP|GAMBAR_BASE64
+      const dataParts = decodedText.split('|');
+      
+      if (dataParts.length < 4) {
+        statusMsg.className = "error";
+        statusMsg.innerText = "Format QR Code tidak sah!";
+        setTimeout(resetScanner, 3000);
+        return;
+      }
+
+      const noMatrik = dataParts[0];
+      const actionType = dataParts[1];
+      const namaPenuh = dataParts[2];
+      const alasan = dataParts[3];
+      const gambarBase64 = dataParts[5] || "";
+
+      const payload = {
+        action: actionType === 'KELUAR' ? 'rekodKeluar' : 'rekodMasuk',
+        noMatrik: noMatrik,
+        namaPenuh: namaPenuh,
+        alasan: alasan,
+        gambarBase64: gambarBase64
+      };
+
+      fetch(SCRIPT_URL, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      })
+      .then(res => res.json())
+      .then(res => {
+        if (res.status === 'success') {
+          statusMsg.className = "success";
+          statusMsg.innerText = `✅ BERJAYA!\nPelajar: ${namaPenuh} (${noMatrik})\nStatus: ${actionType}`;
+        } else {
+          statusMsg.className = "error";
+          statusMsg.innerText = `❌ GAGAL: ${res.message}`;
+        }
+        setTimeout(resetScanner, 3000);
+      })
+      .catch(err => {
+        console.error(err);
+        statusMsg.className = "error";
+        statusMsg.innerText = "Ralat Rangkaian/Server!";
+        setTimeout(resetScanner, 3000);
+      });
+    }
+
+    function onScanFailure(error) {
+      // Abaikan ralat kecil imbasan
+    }
+
+    function resetScanner() {
+      isProcessing = false;
+      const statusMsg = document.getElementById('statusMsg');
+      statusMsg.className = "";
+      statusMsg.innerText = "Sedia untuk mengimbas...";
+      
+      // Fokus semula ke input tersembunyi
+      document.getElementById('barcodeInput').focus();
+      
+      if (html5QrCode && !html5QrCode.isScanning) {
+        startScanning();
+      }
+    }
+  </script>
+</body>
+</html>
